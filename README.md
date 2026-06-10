@@ -67,6 +67,7 @@ The script prints total elapsed time including video I/O, YOLO inference, crop p
 ```bash
 python src/mnist/train_mnist_13568.py \
   --custom-root data/custom_digits \
+  --custom-repeat 20 \
   --epochs 8 \
   --model-out models/mnist_13568.pt \
   --metrics-out results/mnist_metrics.json

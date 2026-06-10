@@ -171,6 +171,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default=None)
     parser.add_argument("--download", action="store_true", help="Download MNIST if missing")
     parser.add_argument("--custom-val-ratio", type=float, default=0.2)
+    parser.add_argument(
+        "--custom-repeat",
+        type=int,
+        default=1,
+        help="Repeat custom train samples to increase their weight relative to MNIST",
+    )
     parser.add_argument("--model-out", default="models/mnist_13568.pt")
     parser.add_argument("--metrics-out", default="results/mnist_metrics.json")
     parser.add_argument("--limit-train", type=int, default=0, help="Optional quick-debug train limit")
@@ -247,6 +253,8 @@ def evaluate(model: nn.Module, loader: DataLoader, device: torch.device) -> dict
 
 def main() -> None:
     args = parse_args()
+    if args.custom_repeat < 1:
+        raise ValueError("--custom-repeat must be >= 1")
     set_seed(args.seed)
     device = select_device(args.device)
     total_start = time.perf_counter()
@@ -258,7 +266,11 @@ def main() -> None:
     if args.limit_train > 0:
         train_set = Subset(train_set, list(range(min(args.limit_train, len(train_set)))))
 
-    combined_train = ConcatDataset([train_set, custom_train_set]) if len(custom_train_set) else train_set
+    combined_train = (
+        ConcatDataset([train_set, *([custom_train_set] * args.custom_repeat)])
+        if len(custom_train_set)
+        else train_set
+    )
     train_loader = DataLoader(combined_train, batch_size=args.batch_size, shuffle=True, num_workers=2)
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=2)
     custom_eval_loader = DataLoader(custom_eval_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
@@ -311,6 +323,7 @@ def main() -> None:
         "digits": DIGITS,
         "mnist_train_samples": len(train_set),
         "custom_train_samples": len(custom_train_set),
+        "custom_repeat": args.custom_repeat,
         "custom_eval_samples": len(custom_eval_set),
         "total_train_samples": len(combined_train),
         "epochs": args.epochs,
