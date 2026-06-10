@@ -29,10 +29,11 @@ pip install -r requirements.txt
 
 ## Google Colab
 
-Colab에서 바로 실행하려면 프로젝트 폴더를 Google Drive에 올린 뒤
-`notebooks/colab_mnist_13568.ipynb`를 Colab에서 열고 `PROJECT_DIR`을 Drive 경로에 맞추세요.
+[Open in Colab](https://colab.research.google.com/github/eoog333/AI-Accelerator-Final-Project/blob/main/notebooks/colab_mnist_13568.ipynb)
 
-GitHub 저장소로 사용할 경우 노트북의 `REPO_URL`에 저장소 URL을 넣으면 `/content`로 clone해서 실행합니다.
+위 링크로 열면 노트북의 `REPO_URL`이 `https://github.com/eoog333/AI-Accelerator-Final-Project.git`로 설정되어 있어
+프로젝트를 `/content/AI_accelerator_final_project`에 clone해서 실행합니다.
+Colab 메뉴에서 `Runtime > Change runtime type > GPU`를 선택한 뒤 셀을 순서대로 실행하세요.
 처음 학습 셀은 `--download` 옵션으로 MNIST 원본 파일을 `data/mnist/raw`에 내려받습니다.
 
 ## 1. YOLO training
