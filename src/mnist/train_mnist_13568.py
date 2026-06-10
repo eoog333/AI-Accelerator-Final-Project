@@ -112,7 +112,7 @@ class MNISTIdxDataset(Dataset[tuple[torch.Tensor, int]]):
         return len(self.labels)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
-        image = Image.fromarray(self.images[index], mode="L")
+        image = Image.fromarray(self.images[index])
         if self.augment:
             image = augment_image(image)
         return to_tensor(image), int(self.labels[index])
