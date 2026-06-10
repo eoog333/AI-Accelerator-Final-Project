@@ -126,6 +126,14 @@ scripts/run_pipeline.sh
 
 YOLO video-to-PGM, MNIST 학습, PGM 평가를 순서대로 실행하는 스크립트이다. Jetson에서는 학습보다 추론만 수행하는 것이 일반적이므로 필요에 따라 개별 명령어 실행을 권장한다.
 
+```text
+scripts/run_local.sh
+scripts/check_environment.py
+```
+
+로컬 PC, CUDA 서버, Jetson Nano 등에서 환경 점검과 로컬 실행을 쉽게 하기 위한 스크립트이다.
+먼저 `scripts/run_local.sh check`로 Python 패키지, Torch 장치, 모델/영상 파일 존재 여부를 확인한다.
+
 ## 4. Colab 학습 결과
 
 학습 설정:

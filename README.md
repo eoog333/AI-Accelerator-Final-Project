@@ -27,6 +27,52 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Local Execution
+
+Colab 외에 로컬 PC, 연구실 서버, 다른 CUDA GPU 머신, Jetson Nano에서도 같은 코드로 실행할 수 있습니다.
+먼저 환경과 필요한 파일이 있는지 확인하세요.
+
+```bash
+scripts/run_local.sh check
+```
+
+로컬에서 MNIST 모델을 다시 학습하려면:
+
+```bash
+scripts/run_local.sh train-mnist
+```
+
+기본 설정은 `EPOCHS=10`, `CUSTOM_REPEAT=20`, 출력 모델은 `models/mnist_13568_colab.pt`입니다.
+다른 장치를 강제로 쓰려면 `DEVICE`를 지정합니다.
+
+```bash
+DEVICE=cuda scripts/run_local.sh train-mnist
+DEVICE=mps scripts/run_local.sh train-mnist
+DEVICE=cpu scripts/run_local.sh train-mnist
+```
+
+이미 만들어진 PGM 파일만 평가하려면:
+
+```bash
+MNIST_WEIGHTS=models/mnist_13568_colab.pt \
+PGM_ROOT=data/pgm \
+MAX_IMAGES=15 \
+scripts/run_local.sh eval-pgm
+```
+
+영상에서 YOLO로 PGM을 만들고 이어서 MNIST 평가까지 실행하려면:
+
+```bash
+YOLO_WEIGHTS=models/yolo_digits.pt \
+MNIST_WEIGHTS=models/mnist_13568_colab.pt \
+VIDEO=data/videos/test.mp4 \
+MAX_EVENTS=15 \
+MAX_IMAGES=15 \
+scripts/run_local.sh video-pipeline
+```
+
+주의: `models/*.pt`, `results/*.json`, `data/pgm/*.pgm`은 생성 산출물이므로 기본적으로 GitHub에 올라가지 않습니다. Colab에서 만든 최종 모델은 로컬이나 Jetson으로 별도 복사해야 합니다.
+
 ## Google Colab
 
 [Open in Colab](https://colab.research.google.com/github/eoog333/AI-Accelerator-Final-Project/blob/main/notebooks/colab_mnist_13568.ipynb)
