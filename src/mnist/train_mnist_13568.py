@@ -125,10 +125,10 @@ class CustomDigitDataset(Dataset[tuple[torch.Tensor, int]]):
 
     @classmethod
     def from_root(cls, root: str | Path, augment: bool) -> "CustomDigitDataset":
-        self.root = Path(root)
+        root_path = Path(root)
         samples: list[tuple[Path, int]] = []
         for digit in DIGITS:
-            digit_dir = self.root / str(digit)
+            digit_dir = root_path / str(digit)
             if not digit_dir.exists():
                 continue
             for ext in ("*.pgm", "*.png", "*.jpg", "*.jpeg", "*.bmp"):
