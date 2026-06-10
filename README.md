@@ -56,11 +56,15 @@ python src/yolo/video_to_pgm.py \
   --weights models/yolo_digits.pt \
   --video data/videos/test.mp4 \
   --out-dir data/pgm \
+  --clean-out-dir \
+  --max-events 15 \
+  --event-gap-frames 8 \
   --conf 0.35 \
   --sample-stride 1
 ```
 
-The script prints total elapsed time including video I/O, YOLO inference, crop preprocessing, and PGM writes.
+The script groups detections across adjacent frames and saves one 28x28 PGM for each handwriting appearance.
+For example, a digit visible for 2 seconds is saved once, not once per frame. The saved frame is the highest-confidence detection inside that appearance event.
 
 ## 3. MNIST + custom 6/8 training
 
@@ -79,7 +83,9 @@ python src/mnist/train_mnist_13568.py \
 python src/mnist/eval_pgm.py \
   --weights models/mnist_13568.pt \
   --pgm-root data/pgm \
+  --max-images 15 \
   --metrics-out results/pgm_eval.json
 ```
 
 If `data/pgm` has label subdirectories such as `data/pgm/6/*.pgm` and `data/pgm/8/*.pgm`, the evaluator reports per-digit accuracy.
+For project videos, set `--max-images` to the number of handwritten digits in the video, such as 10 to 15. The evaluator prints each input PGM, the predicted digit, total image count, MNIST-only inference time, and prediction counts for digits 0 through 9.

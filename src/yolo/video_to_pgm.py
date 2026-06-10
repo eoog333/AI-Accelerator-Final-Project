@@ -15,15 +15,35 @@ import numpy as np
 
 @dataclass(frozen=True)
 class DetectionRecord:
+    event_idx: int
     frame_idx: int
     timestamp_ms: float
-    det_idx: int
+    first_frame_idx: int
+    last_frame_idx: int
+    frames_seen: int
+    class_id: int
+    class_name: str
     conf: float
     x1: int
     y1: int
     x2: int
     y2: int
     pgm_path: str
+
+
+@dataclass
+class ActiveEvent:
+    event_idx: int
+    class_id: int
+    class_name: str
+    first_frame_idx: int
+    last_frame_idx: int
+    frames_seen: int
+    best_frame_idx: int
+    best_timestamp_ms: float
+    best_conf: float
+    best_box: tuple[int, int, int, int]
+    best_image: np.ndarray
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,6 +57,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-stride", type=int, default=1, help="Process every Nth frame")
     parser.add_argument("--pad", type=float, default=0.15, help="BBox padding ratio")
     parser.add_argument("--device", default=None)
+    parser.add_argument("--event-iou", type=float, default=0.25, help="IoU threshold for continuing the same event")
+    parser.add_argument(
+        "--event-gap-frames",
+        type=int,
+        default=8,
+        help="Close an event after this many processed frames without a matching detection",
+    )
+    parser.add_argument("--min-event-frames", type=int, default=1, help="Ignore events seen for fewer frames")
+    parser.add_argument("--max-events", type=int, default=0, help="Save only the first N events; 0 means no limit")
+    parser.add_argument(
+        "--max-detections-per-frame",
+        type=int,
+        default=1,
+        help="Use only the top N detections per frame; 0 means all detections",
+    )
+    parser.add_argument("--clean-out-dir", action="store_true", help="Remove existing .pgm files in out-dir first")
     return parser.parse_args()
 
 
@@ -55,6 +91,36 @@ def padded_box(x1: float, y1: float, x2: float, y2: float, width: int, height: i
         clamp(int(round(x2 + px)), 1, width),
         clamp(int(round(y2 + py)), 1, height),
     )
+
+
+def box_iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    ix1 = max(ax1, bx1)
+    iy1 = max(ay1, by1)
+    ix2 = min(ax2, bx2)
+    iy2 = min(ay2, by2)
+    iw = max(0, ix2 - ix1)
+    ih = max(0, iy2 - iy1)
+    inter = iw * ih
+    area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+    area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+    union = area_a + area_b - inter
+    return inter / union if union else 0.0
+
+
+def class_name_from_result(result: object, class_id: int) -> str:
+    names = getattr(result, "names", None)
+    if isinstance(names, dict):
+        return str(names.get(class_id, class_id))
+    if isinstance(names, (list, tuple)) and 0 <= class_id < len(names):
+        return str(names[class_id])
+    return str(class_id)
+
+
+def safe_label(label: str) -> str:
+    clean = "".join(ch if ch.isalnum() else "_" for ch in label)
+    return clean.strip("_") or "unknown"
 
 
 def mnist_style_crop(frame: np.ndarray, box: tuple[int, int, int, int]) -> np.ndarray:
@@ -98,8 +164,44 @@ def write_pgm(path: Path, image: np.ndarray) -> None:
         f.write(image.astype(np.uint8).tobytes())
 
 
+def save_event(event: ActiveEvent, out_dir: Path, records: list[DetectionRecord], saved: int) -> int:
+    label = safe_label(event.class_name)
+    x1, y1, x2, y2 = event.best_box
+    pgm_path = out_dir / (
+        f"frame_{event.best_frame_idx:06d}_digit_{label}_conf_{event.best_conf:.2f}_{saved + 1:04d}.pgm"
+    )
+    write_pgm(pgm_path, event.best_image)
+    records.append(
+        DetectionRecord(
+            event_idx=saved + 1,
+            frame_idx=event.best_frame_idx,
+            timestamp_ms=event.best_timestamp_ms,
+            first_frame_idx=event.first_frame_idx,
+            last_frame_idx=event.last_frame_idx,
+            frames_seen=event.frames_seen,
+            class_id=event.class_id,
+            class_name=event.class_name,
+            conf=event.best_conf,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            pgm_path=str(pgm_path),
+        )
+    )
+    return saved + 1
+
+
 def main() -> None:
     args = parse_args()
+    if args.sample_stride < 1:
+        raise SystemExit("--sample-stride must be >= 1")
+    if args.event_gap_frames < 0:
+        raise SystemExit("--event-gap-frames must be >= 0")
+    if args.min_event_frames < 1:
+        raise SystemExit("--min-event-frames must be >= 1")
+    if args.max_events < 0:
+        raise SystemExit("--max-events must be >= 0")
     start = time.perf_counter()
 
     try:
@@ -113,12 +215,19 @@ def main() -> None:
         raise SystemExit(f"Could not open video: {args.video}")
 
     out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if args.clean_out_dir:
+        for path in out_dir.glob("*.pgm"):
+            path.unlink()
+
     csv_out = Path(args.csv_out)
     csv_out.parent.mkdir(parents=True, exist_ok=True)
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
     records: list[DetectionRecord] = []
+    active_events: list[ActiveEvent] = []
     frame_idx = 0
+    next_event_idx = 1
     saved = 0
 
     while True:
@@ -130,6 +239,15 @@ def main() -> None:
             continue
 
         height, width = frame.shape[:2]
+        timestamp_ms = (frame_idx / fps * 1000.0) if fps > 0 else 0.0
+        still_active: list[ActiveEvent] = []
+        for event in active_events:
+            if frame_idx - event.last_frame_idx <= args.event_gap_frames:
+                still_active.append(event)
+            elif event.frames_seen >= args.min_event_frames and (args.max_events == 0 or saved < args.max_events):
+                saved = save_event(event, out_dir, records, saved)
+        active_events = still_active
+
         predict_kwargs = {"conf": args.conf, "imgsz": args.imgsz, "verbose": False}
         if args.device:
             predict_kwargs["device"] = args.device
@@ -138,20 +256,67 @@ def main() -> None:
         if result.boxes is not None:
             boxes = result.boxes.xyxy.cpu().numpy()
             confs = result.boxes.conf.cpu().numpy()
-            for det_idx, (xyxy, conf) in enumerate(zip(boxes, confs)):
+            class_ids = result.boxes.cls.cpu().numpy().astype(int) if result.boxes.cls is not None else np.zeros(len(boxes), dtype=int)
+            order = np.argsort(-confs)
+            if args.max_detections_per_frame > 0:
+                order = order[: args.max_detections_per_frame]
+
+            matched_event_indices: set[int] = set()
+            for det_order_idx in order:
+                xyxy = boxes[det_order_idx]
+                conf = float(confs[det_order_idx])
+                class_id = int(class_ids[det_order_idx])
+                class_name = class_name_from_result(result, class_id)
                 x1, y1, x2, y2 = padded_box(*xyxy, width=width, height=height, pad=args.pad)
+                box = (x1, y1, x2, y2)
                 image = mnist_style_crop(frame, (x1, y1, x2, y2))
-                pgm_path = out_dir / f"frame_{frame_idx:06d}_det_{det_idx:02d}.pgm"
-                write_pgm(pgm_path, image)
-                saved += 1
-                timestamp_ms = (frame_idx / fps * 1000.0) if fps > 0 else 0.0
-                records.append(
-                    DetectionRecord(frame_idx, timestamp_ms, det_idx, float(conf), x1, y1, x2, y2, str(pgm_path))
-                )
+
+                best_match_idx = -1
+                best_iou = 0.0
+                for event_idx, event in enumerate(active_events):
+                    if event_idx in matched_event_indices or event.class_id != class_id:
+                        continue
+                    iou = box_iou(event.best_box, box)
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_match_idx = event_idx
+
+                if best_match_idx >= 0 and best_iou >= args.event_iou:
+                    event = active_events[best_match_idx]
+                    event.last_frame_idx = frame_idx
+                    event.frames_seen += 1
+                    if conf > event.best_conf:
+                        event.best_frame_idx = frame_idx
+                        event.best_timestamp_ms = timestamp_ms
+                        event.best_conf = conf
+                        event.best_box = box
+                        event.best_image = image
+                    matched_event_indices.add(best_match_idx)
+                elif args.max_events == 0 or saved + len(active_events) < args.max_events:
+                    active_events.append(
+                        ActiveEvent(
+                            event_idx=next_event_idx,
+                            class_id=class_id,
+                            class_name=class_name,
+                            first_frame_idx=frame_idx,
+                            last_frame_idx=frame_idx,
+                            frames_seen=1,
+                            best_frame_idx=frame_idx,
+                            best_timestamp_ms=timestamp_ms,
+                            best_conf=conf,
+                            best_box=box,
+                            best_image=image,
+                        )
+                    )
+                    next_event_idx += 1
 
         frame_idx += 1
 
     cap.release()
+
+    for event in active_events:
+        if event.frames_seen >= args.min_event_frames and (args.max_events == 0 or saved < args.max_events):
+            saved = save_event(event, out_dir, records, saved)
 
     with csv_out.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(DetectionRecord.__dataclass_fields__.keys()))
@@ -161,7 +326,7 @@ def main() -> None:
 
     elapsed = time.perf_counter() - start
     print(f"frames_read={frame_idx}")
-    print(f"pgm_saved={saved}")
+    print(f"events_saved={saved}")
     print(f"detection_csv={csv_out}")
     print(f"total_time_sec={elapsed:.6f}")
     if saved:
@@ -170,4 +335,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

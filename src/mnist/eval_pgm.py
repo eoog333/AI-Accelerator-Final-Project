@@ -54,6 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--device", default=None)
     parser.add_argument("--metrics-out", default="results/pgm_eval.json")
+    parser.add_argument("--max-images", type=int, default=0, help="Evaluate only the first N PGM files; 0 means all")
     return parser.parse_args()
 
 
@@ -69,10 +70,14 @@ def select_device(requested: str | None) -> torch.device:
 
 def main() -> None:
     args = parse_args()
+    if args.max_images < 0:
+        raise SystemExit("--max-images must be >= 0")
     device = select_device(args.device)
     total_start = time.perf_counter()
 
     dataset = PGMEvalDataset(args.pgm_root)
+    if args.max_images > 0:
+        dataset.samples = dataset.samples[: args.max_images]
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
 
     checkpoint = torch.load(args.weights, map_location=device)
@@ -84,6 +89,7 @@ def main() -> None:
     total = 0
     correct = 0
     infer_time = 0.0
+    pred_counts = {digit: 0 for digit in range(10)}
     per_digit: dict[str, dict[str, int | float]] = {}
 
     with torch.no_grad():
@@ -107,6 +113,7 @@ def main() -> None:
             for path, label, prediction, confidence in zip(
                 paths, labels.cpu().tolist(), pred.cpu().tolist(), probs.max(dim=1).values.cpu().tolist()
             ):
+                pred_counts[int(prediction)] += 1
                 is_labeled = int(label) >= 0
                 ok = bool(is_labeled and int(label) == int(prediction))
                 if is_labeled:
@@ -135,10 +142,12 @@ def main() -> None:
         "device": str(device),
         "pgm_root": args.pgm_root,
         "samples": len(dataset),
+        "max_images": args.max_images,
         "labeled_samples": total,
         "accuracy": correct / total if total else None,
         "correct": correct,
         "total": total,
+        "prediction_counts": pred_counts,
         "per_digit": per_digit,
         "inference_time_sec": infer_time,
         "avg_latency_ms": infer_time * 1000.0 / len(dataset) if len(dataset) else 0.0,
@@ -150,14 +159,16 @@ def main() -> None:
     metrics_out.parent.mkdir(parents=True, exist_ok=True)
     metrics_out.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
-    print(f"samples={len(dataset)}")
-    print(f"metrics={metrics_out}")
-    print(f"total_time_sec={elapsed:.6f}")
-    print(f"avg_latency_ms={metrics['avg_latency_ms']:.6f}")
-    if total:
-        print(f"accuracy={metrics['accuracy']:.6f} correct={correct} total={total}")
-    for digit, stats in sorted(per_digit.items()):
-        print(f"digit={digit} accuracy={stats['accuracy']:.6f} correct={stats['correct']} total={stats['total']}")
+    for record in records:
+        print(f"INPUT: {Path(record['path']).name}")
+        print(f"Result of classification: {record['prediction']}")
+        print()
+
+    print(f"Total Images : {len(dataset)}")
+    print(f"Total Time   : {infer_time:.3f} sec")
+    print()
+    for digit in range(10):
+        print(f"Digit {digit} : {pred_counts[digit]}")
 
 
 if __name__ == "__main__":
