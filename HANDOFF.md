@@ -1,4 +1,4 @@
-# Project Handoff
+# 프로젝트 인수인계 문서
 
 이 문서는 다음 작업자가 현재 프로젝트 상태를 빠르게 이어받기 위한 인수인계 문서입니다.
 
@@ -26,6 +26,7 @@
 - YOLO 결과를 프레임별 저장이 아니라 등장 이벤트별 저장으로 수정
 - MNIST PGM 평가 출력 형식을 과제 예시 형식으로 수정
 - Jetson Nano에서 실행할 수 있는 코드 구조 정리
+- YOLO는 공개 사전학습 숫자 검출 모델/가중치를 우선 사용하고, 실패할 경우에만 자체 학습하는 방향으로 결정
 
 GitHub 저장소:
 
@@ -107,6 +108,8 @@ src/yolo/video_to_pgm.py
 ```
 
 YOLO로 동영상에서 숫자 영역을 감지하고 PGM으로 저장하는 스크립트이다. 같은 숫자가 여러 프레임 동안 계속 감지되어도 이벤트로 묶어서 1개만 저장한다.
+YOLO 가중치는 우선 공개 손글씨 숫자 검출 모델 또는 숫자 검출 모델을 찾아 `models/yolo_digits.pt`로 배치해서 사용한다.
+공개 모델이 실제 손글씨 영상에서 잘 동작하지 않을 때만 자체 YOLO 학습으로 넘어간다.
 
 중요 옵션:
 
@@ -139,47 +142,47 @@ scripts/check_environment.py
 학습 설정:
 
 ```text
-Device: CUDA GPU
+장치: CUDA GPU
 Epochs: 10
 custom-repeat: 20
-Model output: models/mnist_13568_colab.pt
-Metrics output: results/mnist_metrics_colab.json
+모델 출력: models/mnist_13568_colab.pt
+결과 출력: results/mnist_metrics_colab.json
 ```
 
 학습 결과:
 
 ```text
-Total training time: 1740.10 sec
-MNIST test accuracy: 99.72%
-MNIST digit 1 accuracy: 99.82% (1133 / 1135)
-MNIST digit 3 accuracy: 99.80% (1008 / 1010)
-MNIST digit 5 accuracy: 99.33% (886 / 892)
-MNIST digit 6 accuracy: 99.58% (954 / 958)
-MNIST digit 8 accuracy: 100.00% (974 / 974)
-Custom 6/8 validation accuracy: 92.86%
-Custom digit 6 accuracy: 92.86% (13 / 14)
-Custom digit 8 accuracy: 92.86% (13 / 14)
-MNIST average latency: 0.028924 ms/sample
+전체 학습 시간: 1740.10 sec
+MNIST 테스트 정확도: 99.72%
+MNIST 숫자 1 정확도: 99.82% (1133 / 1135)
+MNIST 숫자 3 정확도: 99.80% (1008 / 1010)
+MNIST 숫자 5 정확도: 99.33% (886 / 892)
+MNIST 숫자 6 정확도: 99.58% (954 / 958)
+MNIST 숫자 8 정확도: 100.00% (974 / 974)
+커스텀 6/8 검증 정확도: 92.86%
+커스텀 숫자 6 정확도: 92.86% (13 / 14)
+커스텀 숫자 8 정확도: 92.86% (13 / 14)
+MNIST 평균 지연시간: 0.028924 ms/sample
 ```
 
 PGM 평가 결과:
 
 ```text
-PGM samples: 139
-Correct / Total: 137 / 139
-Overall PGM accuracy: 98.56%
-Digit 6 accuracy: 98.57% (69 / 70)
-Digit 8 accuracy: 98.55% (68 / 69)
-Average latency: 1.571643 ms/sample
-Total evaluation time: 0.515309 sec
+PGM 샘플 수: 139
+정답 / 전체: 137 / 139
+전체 PGM 정확도: 98.56%
+숫자 6 정확도: 98.57% (69 / 70)
+숫자 8 정확도: 98.55% (68 / 69)
+평균 지연시간: 1.571643 ms/sample
+전체 평가 시간: 0.515309 sec
 ```
 
 이전 모델 대비 개선:
 
 ```text
-Overall PGM accuracy: 94.96% -> 98.56%
-Digit 8 accuracy: 91.30% -> 98.55%
-Correct count: 132 / 139 -> 137 / 139
+전체 PGM 정확도: 94.96% -> 98.56%
+숫자 8 정확도: 91.30% -> 98.55%
+정답 개수: 132 / 139 -> 137 / 139
 ```
 
 ## 5. 중요한 산출물
@@ -256,6 +259,8 @@ models/yolo_digits.pt
 data/videos/test.mp4
 ```
 
+`models/yolo_digits.pt`는 우선 공개 사전학습 숫자 검출 모델/가중치를 사용한다. 공개 모델이 실제 영상에서 손글씨 숫자를 제대로 잡지 못하면 그때 자체 학습한 가중치로 교체한다.
+
 3. YOLO로 동영상에서 PGM 생성:
 
 ```bash
@@ -321,9 +326,12 @@ Digit 9 : 0
    - 예: `data/videos/test.mp4`
 
 2. YOLO 모델 준비
-   - `models/yolo_digits.pt` 필요
-   - 아직 없다면 `src/yolo/train_yolo.py`로 학습해야 한다.
-   - YOLO 학습 데이터는 `data/yolo/images/{train,val}`와 `data/yolo/labels/{train,val}` 형식이어야 한다.
+   - 우선 공개 사전학습 손글씨 숫자 검출 또는 숫자 검출 YOLO 가중치를 찾는다.
+   - 찾은 가중치를 `models/yolo_digits.pt`로 저장한다.
+   - 검색 키워드 예: `handwritten digit detection YOLO weights`, `digit detection YOLO pretrained`, `Roboflow handwritten digit detection YOLO`.
+   - 공개 모델이 실제 영상에서 `events_saved` 개수와 crop 품질을 만족하면 자체 학습은 하지 않는다.
+   - 공개 모델이 실패하면 그때 `src/yolo/train_yolo.py`로 자체 학습한다.
+   - 자체 학습 데이터는 `data/yolo/images/{train,val}`와 `data/yolo/labels/{train,val}` 형식이어야 한다.
 
 3. 영상에서 PGM 생성 확인
    - `events_saved`가 영상 속 손글씨 개수와 맞아야 한다.
@@ -344,14 +352,15 @@ Digit 9 : 0
 최종 MNIST/PGM 성능은 충분히 좋다:
 
 ```text
-MNIST test accuracy: 99.72%
-PGM final accuracy: 98.56%
-Digit 6 PGM accuracy: 98.57%
-Digit 8 PGM accuracy: 98.55%
+MNIST 테스트 정확도: 99.72%
+PGM 최종 정확도: 98.56%
+숫자 6 PGM 정확도: 98.57%
+숫자 8 PGM 정확도: 98.55%
 ```
 
 아직 완전히 끝난 것은 아니다. 남은 것은 실제 영상과 YOLO weight를 사용해서 다음 전체 흐름을 Jetson Nano에서 실행하는 것이다.
+YOLO 가중치는 공개 사전학습 모델을 우선 사용하고, 검출이 안 되면 자체 학습 모델로 대체한다.
 
 ```text
-video -> YOLO detection -> one PGM per handwriting appearance -> MNIST classification -> final printed result
+동영상 -> YOLO 검출 -> 손글씨 등장 1회당 PGM 1개 저장 -> MNIST 분류 -> 최종 출력
 ```
