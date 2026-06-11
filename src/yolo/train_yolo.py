@@ -23,6 +23,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def ultralytics_device(device: str | None) -> str | int | None:
+    if not device:
+        return None
+    if device == "cuda":
+        return 0
+    if device.startswith("cuda:"):
+        return device.split(":", 1)[1]
+    return device
+
+
 def main() -> None:
     args = parse_args()
     start = time.perf_counter()
@@ -42,8 +52,9 @@ def main() -> None:
         "name": args.name,
         "exist_ok": True,
     }
-    if args.device:
-        train_kwargs["device"] = args.device
+    device = ultralytics_device(args.device)
+    if device is not None:
+        train_kwargs["device"] = device
 
     result = model.train(**train_kwargs)
     elapsed = time.perf_counter() - start
@@ -62,4 +73,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

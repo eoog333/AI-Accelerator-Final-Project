@@ -20,6 +20,8 @@ PATHS = [
     "data/custom_digits_pgm",
     "data/pgm",
     "data/videos/test.mp4",
+    "models/mnist_13568_lab.pt",
+    "models/mnist_13568_local.pt",
     "models/mnist_13568_colab.pt",
     "models/yolo_digits.pt",
 ]
@@ -66,7 +68,10 @@ def main() -> None:
         cuda_available = bool(cuda and cuda.is_available())
         print(f"  cuda_available: {cuda_available}")
         if cuda_available:
+            print(f"  cuda_device_count: {torch.cuda.device_count()}")
             print(f"  cuda_device: {torch.cuda.get_device_name(0)}")
+            print(f"  cudnn_available: {torch.backends.cudnn.is_available()}")
+            print(f"  cudnn_benchmark: {torch.backends.cudnn.benchmark}")
         backends = getattr(torch, "backends", None)
         mps = getattr(backends, "mps", None) if backends else None
         print(f"  mps_available: {bool(mps and mps.is_available())}")

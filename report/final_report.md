@@ -10,7 +10,7 @@
 
 두 번째 단계에서는 학습된 YOLO 모델에 손글씨 동영상을 입력한다. 각 프레임에 대해 숫자 bounding box를 검출하고, 검출 영역에 padding을 추가한 뒤 grayscale 변환, 배경/전경 반전, Otsu 이진화, digit 중심 정렬을 수행한다. 최종 이미지는 MNIST 입력과 동일한 28x28 크기의 PGM 파일로 저장한다. 이 과정에서 전체 수행시간을 `time.perf_counter()`로 측정하여 영상 읽기, 모델 추론, 전처리, 파일 저장 시간을 모두 포함하였다.
 
-세 번째 단계에서는 MNIST 분류기를 재학습한다. 기본 입력 크기와 추론 순서는 유지하되, CNN 내부의 convolution channel 수, dropout, AdamW optimizer, affine augmentation을 적용하여 일반화 성능을 높였다. 학습 대상은 1, 3, 5, 6, 8로 제한하고, MNIST 기본 데이터에 새로 수집한 6, 8 PGM/이미지를 추가로 결합하였다. 평가 시에는 전체 정확도뿐 아니라 숫자별 정확도와 평균 latency를 함께 출력하도록 구성하였다.
+세 번째 단계에서는 연구실 PC의 CUDA GPU 환경에서 MNIST 분류기를 재학습한다. 기본 입력 크기와 추론 순서는 유지하되, CNN 내부의 convolution channel 수, dropout, AdamW optimizer, affine augmentation을 적용하여 일반화 성능을 높였다. 학습 대상은 1, 3, 5, 6, 8로 제한하고, MNIST 기본 데이터에 새로 수집한 6, 8 PGM/이미지를 추가로 결합하였다. 평가 시에는 전체 정확도뿐 아니라 숫자별 정확도와 평균 latency를 함께 출력하도록 구성하였다.
 
 ## 3. 코드 수정 및 구현 내용
 
@@ -22,39 +22,47 @@ MNIST 모델은 `src/mnist/model.py`의 `DigitCNN`으로 분리하였다. 학습
 
 ## 4. 실험 방법
 
+최종 학습과 측정은 연구실 PC에서 수행한다. 현재 코드 편집에 사용한 로컬 환경은 연구실 PC가 아니므로, 로컬에서 측정한 시간과 성능은 본 실험 결과로 사용하지 않는다.
+
+연구실 PC 환경 확인은 다음 명령으로 수행한다.
+
+```bash
+scripts/run_lab_pc.sh check
+```
+
 YOLO 학습은 다음 명령으로 수행한다.
 
 ```bash
-python src/yolo/train_yolo.py --data data/yolo/dataset.yaml --model yolo11n.pt --epochs 80 --imgsz 640 --out models/yolo_digits.pt
+scripts/run_lab_pc.sh yolo-train
 ```
 
 동영상에서 PGM 파일을 생성할 때는 다음 명령을 사용한다.
 
 ```bash
-python src/yolo/video_to_pgm.py --weights models/yolo_digits.pt --video data/videos/test.mp4 --out-dir data/pgm --conf 0.35
+YOLO_WEIGHTS=models/yolo_digits.pt VIDEO=data/videos/test.mp4 MAX_EVENTS=15 scripts/run_lab_pc.sh video-to-pgm
 ```
 
 MNIST와 새 손글씨 샘플을 결합한 학습 및 평가는 다음 명령으로 수행한다.
 
 ```bash
-python src/mnist/train_mnist_13568.py --custom-root data/custom_digits --epochs 8 --model-out models/mnist_13568.pt --metrics-out results/mnist_metrics.json
+scripts/run_lab_pc.sh train-mnist
 ```
 
 YOLO로 생성된 PGM 파일에 대한 최종 평가는 다음 명령으로 수행한다.
 
 ```bash
-python src/mnist/eval_pgm.py --weights models/mnist_13568.pt --pgm-root data/pgm --metrics-out results/pgm_eval.json
+PGM_ROOT=data/pgm MAX_IMAGES=15 scripts/run_lab_pc.sh eval-pgm
 ```
 
 ## 5. 결과
 
-현재 저장소에는 실제 촬영 영상, YOLO 라벨, 새 손글씨 6/8 샘플이 아직 포함되어 있지 않으므로 아래 표는 실험 후 채워야 한다.
+아래 표는 연구실 PC에서 `results/mnist_metrics_lab.json`, `results/pgm_eval_lab.json`, `results/video_detections_lab.csv`를 생성한 뒤 채운다.
 
 | 항목 | 결과 |
 |---|---:|
 | YOLO 영상 처리 전체 시간 | TBD sec |
 | 저장된 PGM 수 | TBD |
-| MNIST 학습 및 평가 전체 시간 | TBD sec |
+| 연구실 PC MNIST 학습 및 평가 전체 시간 | TBD sec |
 | PGM 최종 평가 전체 시간 | TBD sec |
 | 평균 추론 latency | TBD ms/sample |
 
@@ -68,5 +76,4 @@ python src/mnist/eval_pgm.py --weights models/mnist_13568.pt --pgm-root data/pgm
 
 ## 6. 결론
 
-구현은 YOLO 검출과 MNIST 분류를 분리하여 구성하였다. YOLO는 동영상에서 숫자 위치를 찾는 역할만 수행하고, MNIST 모델은 28x28 PGM으로 정규화된 숫자 이미지를 분류한다. 이 구조는 기존 MNIST 예제의 입력 형식을 유지하면서 새로 수집한 손글씨 6, 8 샘플을 학습에 추가할 수 있다는 장점이 있다. 최종 제출 전에는 실제 80개 손글씨 파일 기반 영상으로 YOLO 라벨링 및 학습을 완료하고, `results/mnist_metrics.json`, `results/pgm_eval.json`의 숫자별 정확도와 latency 값을 본 보고서의 결과 표에 반영해야 한다.
-
+구현은 YOLO 검출과 MNIST 분류를 분리하여 구성하였다. YOLO는 동영상에서 숫자 위치를 찾는 역할만 수행하고, MNIST 모델은 28x28 PGM으로 정규화된 숫자 이미지를 분류한다. 이 구조는 기존 MNIST 예제의 입력 형식을 유지하면서 새로 수집한 손글씨 6, 8 샘플을 학습에 추가할 수 있다는 장점이 있다. 최종 제출 전에는 연구실 PC에서 `models/mnist_13568_lab.pt`를 생성하고, 실제 손글씨 영상으로 `results/mnist_metrics_lab.json`, `results/pgm_eval_lab.json`의 숫자별 정확도와 latency 값을 본 보고서의 결과 표에 반영해야 한다.

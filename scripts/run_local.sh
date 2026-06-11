@@ -18,7 +18,7 @@ Common environment variables:
   CUSTOM_ROOT=data/custom_digits
   PGM_ROOT=data/pgm
   MAX_IMAGES=15
-  MNIST_WEIGHTS=models/mnist_13568_colab.pt
+  MNIST_WEIGHTS=models/mnist_13568_local.pt
   YOLO_WEIGHTS=models/yolo_digits.pt
   VIDEO=data/videos/test.mp4
 
@@ -26,6 +26,7 @@ Training variables:
   EPOCHS=10
   CUSTOM_REPEAT=20
   BATCH_SIZE=128
+  NUM_WORKERS=2
   LR=0.001
 
 YOLO event variables:
@@ -55,15 +56,16 @@ case "$cmd" in
       --custom-repeat "${CUSTOM_REPEAT:-20}" \
       --epochs "${EPOCHS:-10}" \
       --batch-size "${BATCH_SIZE:-128}" \
+      --num-workers "${NUM_WORKERS:-2}" \
       --lr "${LR:-0.001}" \
-      --model-out "${MNIST_WEIGHTS:-models/mnist_13568_colab.pt}" \
+      --model-out "${MNIST_WEIGHTS:-models/mnist_13568_local.pt}" \
       --metrics-out "${MNIST_METRICS:-results/mnist_metrics_local.json}" \
       "${device_args[@]}"
     ;;
 
   eval-pgm)
     eval_args=(
-      --weights "${MNIST_WEIGHTS:-models/mnist_13568_colab.pt}"
+      --weights "${MNIST_WEIGHTS:-models/mnist_13568_local.pt}"
       --pgm-root "${PGM_ROOT:-data/pgm}"
       --metrics-out "${PGM_METRICS:-results/pgm_eval_local.json}"
     )

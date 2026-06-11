@@ -166,9 +166,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--custom-root", default="data/custom_digits")
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default=None)
+    parser.add_argument("--amp", action="store_true", help="Use CUDA automatic mixed precision")
     parser.add_argument("--download", action="store_true", help="Download MNIST if missing")
     parser.add_argument("--custom-val-ratio", type=float, default=0.2)
     parser.add_argument(
@@ -257,6 +259,18 @@ def main() -> None:
         raise ValueError("--custom-repeat must be >= 1")
     set_seed(args.seed)
     device = select_device(args.device)
+    use_amp = bool(args.amp and device.type == "cuda")
+    if args.amp and device.type != "cuda":
+        print(f"warning=amp_disabled device={device}")
+    if device.type == "cuda":
+        torch.backends.cudnn.benchmark = True
+        try:
+            torch.set_float32_matmul_precision("high")
+        except AttributeError:
+            pass
+    print(f"device={device}")
+    print(f"amp={use_amp}")
+    print(f"num_workers={args.num_workers}")
     total_start = time.perf_counter()
 
     train_set = MNISTIdxDataset(args.data_dir, train=True, download=args.download, augment=True)
@@ -271,13 +285,33 @@ def main() -> None:
         if len(custom_train_set)
         else train_set
     )
-    train_loader = DataLoader(combined_train, batch_size=args.batch_size, shuffle=True, num_workers=2)
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=2)
-    custom_eval_loader = DataLoader(custom_eval_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    pin_memory = device.type == "cuda"
+    train_loader = DataLoader(
+        combined_train,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=pin_memory,
+    )
+    test_loader = DataLoader(
+        test_set,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=pin_memory,
+    )
+    custom_eval_loader = DataLoader(
+        custom_eval_set,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=pin_memory,
+    )
 
     model = DigitCNN(num_classes=10).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss()
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
 
     history = []
     for epoch in range(1, args.epochs + 1):
@@ -289,10 +323,12 @@ def main() -> None:
             images = images.to(device)
             labels = labels.to(device)
             optimizer.zero_grad(set_to_none=True)
-            logits = model(images)
-            loss = criterion(logits, labels)
-            loss.backward()
-            optimizer.step()
+            with torch.cuda.amp.autocast(enabled=use_amp):
+                logits = model(images)
+                loss = criterion(logits, labels)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
             running_loss += float(loss.item()) * labels.size(0)
             seen += labels.size(0)
         eval_stats = evaluate(model, test_loader, device)
@@ -324,6 +360,9 @@ def main() -> None:
         "mnist_train_samples": len(train_set),
         "custom_train_samples": len(custom_train_set),
         "custom_repeat": args.custom_repeat,
+        "batch_size": args.batch_size,
+        "num_workers": args.num_workers,
+        "amp": use_amp,
         "custom_eval_samples": len(custom_eval_set),
         "total_train_samples": len(combined_train),
         "epochs": args.epochs,

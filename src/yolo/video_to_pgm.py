@@ -76,6 +76,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def ultralytics_device(device: str | None) -> str | int | None:
+    if not device:
+        return None
+    if device == "cuda":
+        return 0
+    if device.startswith("cuda:"):
+        return device.split(":", 1)[1]
+    return device
+
+
 def clamp(value: int, lo: int, hi: int) -> int:
     return max(lo, min(value, hi))
 
@@ -249,8 +259,9 @@ def main() -> None:
         active_events = still_active
 
         predict_kwargs = {"conf": args.conf, "imgsz": args.imgsz, "verbose": False}
-        if args.device:
-            predict_kwargs["device"] = args.device
+        device = ultralytics_device(args.device)
+        if device is not None:
+            predict_kwargs["device"] = device
         result = model.predict(frame, **predict_kwargs)[0]
 
         if result.boxes is not None:

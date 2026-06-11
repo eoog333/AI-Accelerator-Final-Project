@@ -27,7 +27,73 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 로컬 실행
+## 연구실 PC 실행 방향
+
+최종 MNIST 재학습과 YOLO 자체 학습이 필요할 경우의 기준 환경은 연구실 PC의 CUDA GPU입니다.
+현재 이 저장소를 편집하는 로컬 환경은 연구실 PC가 아니므로, 여기서 생성한 시간/성능 수치는 최종 실험값으로 사용하지 않습니다.
+
+연구실 PC에서 저장소를 받은 뒤 환경을 준비합니다.
+
+```bash
+git clone https://github.com/eoog333/AI-Accelerator-Final-Project.git
+cd AI-Accelerator-Final-Project
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+먼저 CUDA와 필요한 파일 상태를 확인합니다.
+
+```bash
+scripts/run_lab_pc.sh check
+```
+
+MNIST + 커스텀 6/8 모델을 연구실 PC에서 학습합니다.
+
+```bash
+scripts/run_lab_pc.sh train-mnist
+```
+
+기본값은 `DEVICE=cuda`, `EPOCHS=10`, `CUSTOM_REPEAT=20`, `BATCH_SIZE=256`, `NUM_WORKERS=4`, `AMP=1`입니다.
+출력 모델과 결과 파일은 Colab/로컬 산출물과 섞이지 않도록 아래 경로로 저장됩니다.
+
+```text
+models/mnist_13568_lab.pt
+results/mnist_metrics_lab.json
+```
+
+GPU 메모리가 부족하면 배치 크기를 줄입니다.
+
+```bash
+BATCH_SIZE=128 scripts/run_lab_pc.sh train-mnist
+```
+
+MNIST 원본 데이터 다운로드가 막혀 있으면 다른 PC에서 받은 IDX gzip 파일 4개를 `data/mnist/raw/`에 복사한 뒤 같은 명령을 다시 실행합니다.
+
+이미 만들어진 PGM 파일만 평가하려면:
+
+```bash
+PGM_ROOT=data/pgm MAX_IMAGES=15 scripts/run_lab_pc.sh eval-pgm
+```
+
+영상에서 YOLO로 PGM을 만들고 이어서 MNIST 평가까지 실행하려면:
+
+```bash
+YOLO_WEIGHTS=models/yolo_digits.pt \
+MNIST_WEIGHTS=models/mnist_13568_lab.pt \
+VIDEO=data/videos/test.mp4 \
+MAX_EVENTS=15 \
+MAX_IMAGES=15 \
+scripts/run_lab_pc.sh video-pipeline
+```
+
+YOLO 공개 가중치가 실제 영상에서 숫자를 잘 검출하지 못할 때만 연구실 PC에서 자체 YOLO 학습을 실행합니다.
+
+```bash
+scripts/run_lab_pc.sh yolo-train
+```
+
+## 로컬/개인 PC 실행
 
 Colab 외에 로컬 PC, 연구실 서버, 다른 CUDA GPU 머신, Jetson Nano에서도 같은 코드로 실행할 수 있습니다.
 먼저 환경과 필요한 파일이 있는지 확인하세요.
@@ -42,7 +108,7 @@ scripts/run_local.sh check
 scripts/run_local.sh train-mnist
 ```
 
-기본 설정은 `EPOCHS=10`, `CUSTOM_REPEAT=20`, 출력 모델은 `models/mnist_13568_colab.pt`입니다.
+기본 설정은 `EPOCHS=10`, `CUSTOM_REPEAT=20`, 출력 모델은 `models/mnist_13568_local.pt`입니다.
 다른 장치를 강제로 쓰려면 `DEVICE`를 지정합니다.
 
 ```bash
@@ -54,7 +120,7 @@ DEVICE=cpu scripts/run_local.sh train-mnist
 이미 만들어진 PGM 파일만 평가하려면:
 
 ```bash
-MNIST_WEIGHTS=models/mnist_13568_colab.pt \
+MNIST_WEIGHTS=models/mnist_13568_local.pt \
 PGM_ROOT=data/pgm \
 MAX_IMAGES=15 \
 scripts/run_local.sh eval-pgm
@@ -64,14 +130,14 @@ scripts/run_local.sh eval-pgm
 
 ```bash
 YOLO_WEIGHTS=models/yolo_digits.pt \
-MNIST_WEIGHTS=models/mnist_13568_colab.pt \
+MNIST_WEIGHTS=models/mnist_13568_local.pt \
 VIDEO=data/videos/test.mp4 \
 MAX_EVENTS=15 \
 MAX_IMAGES=15 \
 scripts/run_local.sh video-pipeline
 ```
 
-주의: `models/*.pt`, `results/*.json`, `data/pgm/*.pgm`은 생성 산출물이므로 기본적으로 GitHub에 올라가지 않습니다. Colab에서 만든 최종 모델은 로컬이나 Jetson으로 별도 복사해야 합니다.
+주의: `models/*.pt`, `results/*.json`, `data/pgm/*.pgm`은 생성 산출물이므로 기본적으로 GitHub에 올라가지 않습니다. 연구실 PC에서 만든 최종 모델은 Jetson이나 발표용 PC로 별도 복사해야 합니다.
 
 ## 구글 Colab
 
@@ -134,23 +200,37 @@ python src/yolo/video_to_pgm.py \
 
 ## 3. MNIST + 커스텀 6/8 학습
 
+최종 학습은 연구실 PC에서 아래 래퍼 스크립트를 사용한다.
+
+```bash
+scripts/run_lab_pc.sh train-mnist
+```
+
+동일한 작업을 직접 실행하면 다음과 같다.
+
 ```bash
 python src/mnist/train_mnist_13568.py \
+  --download \
   --custom-root data/custom_digits \
   --custom-repeat 20 \
-  --epochs 8 \
-  --model-out models/mnist_13568.pt \
-  --metrics-out results/mnist_metrics.json
+  --epochs 10 \
+  --batch-size 256 \
+  --num-workers 4 \
+  --device cuda \
+  --amp \
+  --model-out models/mnist_13568_lab.pt \
+  --metrics-out results/mnist_metrics_lab.json
 ```
 
 ## 4. PGM 인식 평가
 
 ```bash
 python src/mnist/eval_pgm.py \
-  --weights models/mnist_13568.pt \
+  --weights models/mnist_13568_lab.pt \
   --pgm-root data/pgm \
   --max-images 15 \
-  --metrics-out results/pgm_eval.json
+  --device cuda \
+  --metrics-out results/pgm_eval_lab.json
 ```
 
 `data/pgm` 아래에 `data/pgm/6/*.pgm`, `data/pgm/8/*.pgm`처럼 라벨 폴더가 있으면 숫자별 정확도도 계산됩니다.
